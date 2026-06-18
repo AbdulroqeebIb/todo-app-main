@@ -86,7 +86,8 @@ todoInput.addEventListener("keydown", (event) => {
       };
 
       // Ship the package across the local network to our Node server route
-      fetch("/api/todos", {
+      // 🚢 Only the URL line changes! The rest stays exactly the same.
+      fetch("https://todo-app-main-fh2d.onrender.com/api/todos", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

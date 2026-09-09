@@ -6,6 +6,9 @@ const clearBtn = document.querySelector("#clear-completed");
 const themeToggle = document.querySelector("#theme-toggle");
 const filterButtons = document.querySelectorAll(".filter-btn");
 
+// ✅ CHANGED: Uses relative URL so it works seamlessly locally and on Render
+const API_BASE_URL = "/api/todos";
+
 // --- THEME LOGIC ---
 if (themeToggle) {
   themeToggle.addEventListener("click", () => {
@@ -28,27 +31,52 @@ function updateCounter() {
   itemsCounter.innerHTML = `${activeItems} ${itemText} left`;
 }
 
-function addTodo(text) {
+// 📥 FETCH ALL TASKS FROM BACKEND ON PAGE LOAD
+async function loadTodosFromBackend() {
+  try {
+    const response = await fetch(API_BASE_URL);
+    const todos = await response.json();
+
+    // Clear list before rendering fetched items
+    todoList.innerHTML = "";
+
+    todos.forEach((todo) => {
+      renderTodoItem(todo);
+    });
+
+    updateCounter();
+  } catch (error) {
+    console.error("❌ Failed to load tasks from server:", error);
+  }
+}
+
+// 🎨 RENDER SINGLE TODO ELEMENT WITH API BINDINGS
+function renderTodoItem(todo) {
   const li = document.createElement("li");
-  li.className = "todo-item";
-  li.setAttribute("data-status", "active");
+  li.className = `todo-item ${todo.completed ? "completed" : ""}`;
+  li.setAttribute("data-status", todo.completed ? "completed" : "active");
+  li.setAttribute("data-id", todo.id);
 
   li.innerHTML = `
     <div class="todo-content">
       <div class="circle"></div>
-      <p>${text}</p>
+      <p>${todo.text}</p>
     </div>
     <img src="./images/icon-cross.svg" class="cross-icon" alt="Delete">
   `;
 
-  // Delete specific item
+  // 🗑️ Delete specific item (Local UI + Server DELETE call)
   const cross = li.querySelector(".cross-icon");
   cross.addEventListener("click", () => {
     li.remove();
     updateCounter();
+
+    fetch(`${API_BASE_URL}/${todo.id}`, { method: "DELETE" }).catch((error) =>
+      console.error("❌ Server delete error:", error),
+    );
   });
 
-  // Toggle Completion
+  // 🔄 Toggle Completion (Local UI + Server PATCH call)
   const circle = li.querySelector(".circle");
   const todoText = li.querySelector("p");
 
@@ -57,54 +85,47 @@ function addTodo(text) {
     const isCompleted = li.classList.contains("completed");
     li.setAttribute("data-status", isCompleted ? "completed" : "active");
     updateCounter();
+
+    fetch(`${API_BASE_URL}/${todo.id}`, { method: "PATCH" }).catch((error) =>
+      console.error("❌ Server status update error:", error),
+    );
   };
 
   circle.addEventListener("click", toggleComplete);
   todoText.addEventListener("click", toggleComplete);
 
   todoList.appendChild(li);
-  updateCounter();
 }
 
 // --- EVENT LISTENERS ---
 
 // Input listener (Enter key)
-todoInput.addEventListener("keydown", (event) => {
+todoInput.addEventListener("keydown", async (event) => {
   if (event.key === "Enter") {
     const taskText = todoInput.value.trim();
 
     if (taskText !== "") {
-      // 1. Draw it on the frontend browser screen instantly (your original logic)
-      addTodo(taskText);
-
-      // =========================================================================
-      // 🚢 NEW FULL-STACK DATA PIPELINE CODE
-      // =========================================================================
       const taskPackage = {
+        id: Date.now().toString(), // Generate temporary unique ID
         text: taskText,
         completed: false,
       };
 
-      // Ship the package across the local network to our Node server route
-      // 🚢 Only the URL line changes! The rest stays exactly the same.
-      fetch("https://todo-app-main-fh2d.onrender.com/api/todos", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(taskPackage),
-      })
-        .then((response) => response.json())
-        .then((data) => {
-          console.log("📬 Server confirmation packet received back:", data);
-        })
-        .catch((error) => {
-          console.error("❌ Network pipeline error:", error);
-        });
-      // =========================================================================
-
-      // Clear the input field
+      // 1. Render immediately for speed
+      renderTodoItem(taskPackage);
+      updateCounter();
       todoInput.value = "";
+
+      // 2. Persist to Express/Render Backend
+      try {
+        await fetch(API_BASE_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(taskPackage),
+        });
+      } catch (error) {
+        console.error("❌ Network pipeline error:", error);
+      }
     }
   }
 });
@@ -112,7 +133,16 @@ todoInput.addEventListener("keydown", (event) => {
 // Clear Completed listener
 clearBtn.addEventListener("click", () => {
   const completedItems = todoList.querySelectorAll(".completed");
-  completedItems.forEach((item) => item.remove());
+  completedItems.forEach((item) => {
+    const id = item.getAttribute("data-id");
+    item.remove();
+
+    if (id) {
+      fetch(`${API_BASE_URL}/${id}`, { method: "DELETE" }).catch((err) =>
+        console.error("❌ Delete error:", err),
+      );
+    }
+  });
   updateCounter();
 });
 
@@ -136,8 +166,5 @@ filterButtons.forEach((btn) => {
   });
 });
 
-// --- INITIAL TASKS ---
-// (Commented out for now so you can clearly see your custom live database entries!)
-// addTodo("Complete online JavaScript course");
-// addTodo("Jog around the park 3x");
-// addTodo("Read for 1 hour");
+// --- INITIALIZE FROM SERVER ON LOAD ---
+loadTodosFromBackend();
